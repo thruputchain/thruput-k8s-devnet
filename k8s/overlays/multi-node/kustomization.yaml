@@ -1,0 +1,30 @@
+# Three pods pinned to labelled nodes: the hogd core with its coordinator,
+# the indexer on its own machine, and the public gateway and faucet.
+#   kubectl label node <a> thruput.network/node-role=core
+#   kubectl label node <b> thruput.network/node-role=indexer
+#   kubectl label node <c> thruput.network/node-role=edge
+# Copy this overlay and regroup the pods/*/kustomization.yaml host labels for
+# any other placement; each daemon must be hosted by exactly one pod.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: thruput
+
+resources:
+  - ../../base
+  - pods/core
+  - pods/indexer
+  - pods/edge
+
+components:
+  - ../../components/hog-mempool
+  - ../../components/hog-db
+  - ../../components/hog-event
+  - ../../components/hog-exec
+  - ../../components/hog-auth
+  - ../../components/hog-indexer
+  - ../../components/hog-coordinator
+  - ../../components/hog-gateway
+  - ../../components/hog-faucet
+  # Last: sets the image on every container the components above added.
+  - ../../components/release

@@ -1,0 +1,9 @@
+# Event log; feeds the indexer.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: patch.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: thruput.network/hosts-hog-event=true

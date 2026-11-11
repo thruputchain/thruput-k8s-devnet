@@ -1,0 +1,94 @@
+{
+  "validator_config": {
+    "private_info": {
+      "public_info": {
+        "public_key": {
+          "scheme": "Ed25519",
+          "ed25519": "BAdiM6BcmD46jZJyCPDFDJbp58YyU1129wYk4pLJdPid"
+        },
+        "address": "hog-coordinator:50000"
+      },
+      "secret_key": {
+        "scheme": "Ed25519",
+        "ed25519": "b9cb6de12b73f1969adeeb7c1102d9420f692da1c977cdeb15271c6a090d06b8970c9ba081452fa7f094bbba51966f4a64c9108ea6fec6d1dcbbad38e25e0f56"
+      }
+    },
+    "known_validators": [
+      {
+        "public_key": {
+          "scheme": "Ed25519",
+          "ed25519": "BAdiM6BcmD46jZJyCPDFDJbp58YyU1129wYk4pLJdPid"
+        },
+        "address": "hog-coordinator:50000"
+      }
+    ]
+  },
+  "discovery_config": {
+    "advertise_interval_msec": "15000",
+    "advertise_par": 5,
+    "snapshot_ttl_msec": "21000"
+  },
+  "router_config": {
+    "tree_fan_out": 5
+  },
+  "dogwood_config": {
+    "route_count": 50,
+    "route_time_to_live_msec": "60000",
+    "route_max_latency_msec": "1000",
+    "endpoint_max_pending": 800,
+    "endpoint_num_clients": 16,
+    "endpoint_idle_ttl_msec": "60000",
+    "endpoint_dial_timeout_msec": "2000",
+    "endpoint_redial_delay_msec": "100",
+    "endpoint_call_timeout_msec": "2000",
+    "stream_receiver_worker_count": 512,
+    "stream_sender_worker_count": 32,
+    "transmission_receiver_decode_worker_count": 512,
+    "transmission_sender_worker_count": 32,
+    "transmission_partial_max_ttl_msec": "10000",
+    "transmission_partial_idle_ttl_msec": "1000"
+  },
+  "mempool_config": {
+    "transaction_ttl_msec": "6000",
+    "submission_lot_size": "1000",
+    "submission_lot_wait_msec": "50"
+  },
+  "catchup_config": {
+    "catchup_block_ttl_sec": "15",
+    "catchup_block_age": "5"
+  },
+  "scp_config": {
+    "max_timeout_ms": "1000",
+    "initial_ballot_timeout_ms": "750",
+    "increment_ballot_timeout_ms": "750",
+    "initial_nomination_timeout_ms": "750",
+    "increment_nomination_timeout_ms": "750",
+    "quorum_set": {
+      "threshold": 1,
+      "validators": [
+        {
+          "scheme": "Ed25519",
+          "ed25519": "BAdiM6BcmD46jZJyCPDFDJbp58YyU1129wYk4pLJdPid"
+        }
+      ],
+      "inner_sets": []
+    }
+  },
+  "baton_config": {
+    "skew_msec": "1000",
+    "heartbeat_msec": "600",
+    "patience_msec": "3000",
+    "max_catchup_height": 10000
+  },
+  "repair_config": {
+    "base_delay_msec": "200",
+    "max_delay_msec": "5000",
+    "multiplier_nom": 3,
+    "multiplier_denom": 2
+  },
+  "storage_config": {
+    "reclaim_interval_msec": "300000",
+    "max_catchup_blocks": 86400,
+    "max_scp_slots": 86400
+  }
+}

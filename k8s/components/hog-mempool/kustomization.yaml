@@ -1,0 +1,9 @@
+# Scheduler (mempool): the hub every other daemon registers with.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: patch.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: thruput.network/hosts-hog-mempool=true

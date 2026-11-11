@@ -1,0 +1,14 @@
+# Coordinator (chuckd + scpd). Mints genesis in an init container and serves
+# the committed chain identity to the gateway and faucet on port 8088.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: patch.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: thruput.network/hosts-hog-coordinator=true
+  - path: genesis-init.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: thruput.network/hosts-hog-coordinator=true

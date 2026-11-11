@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../pod
+
+nameSuffix: -validator
+
+labels:
+  - pairs:
+      thruput.network/pod: validator
+    includeSelectors: true
+    includeTemplates: true
+  # Which daemon components add their containers to this pod.
+  - pairs:
+      thruput.network/hosts-hog-mempool: "true"
+      thruput.network/hosts-hog-db: "true"
+      thruput.network/hosts-hog-event: "true"
+      thruput.network/hosts-hog-exec: "true"
+      thruput.network/hosts-hog-auth: "true"
+      thruput.network/hosts-hog-indexer: "true"
+      thruput.network/hosts-hog-coordinator: "true"
+      thruput.network/hosts-hog-gateway: "true"
+      thruput.network/hosts-hog-faucet: "true"

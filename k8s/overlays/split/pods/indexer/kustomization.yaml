@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../pod
+
+nameSuffix: -indexer
+
+labels:
+  - pairs:
+      thruput.network/pod: indexer
+    includeSelectors: true
+    includeTemplates: true
+  # Which daemon components add their containers to this pod.
+  - pairs:
+      thruput.network/hosts-hog-indexer: "true"

@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-exec: "true"
+    spec:
+      containers:
+        - name: hog-exec
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-exec"]
+          args:
+            - "--coordinator-addr"
+            - "hog-mempool:8071"
+            - "--bind-ip"
+            - "__CONTAINER_IP__"
+            - "--mempool-port"
+            - "8040"
+            - "--metrics-port"
+            - "8041"
+            - "--db-executor-addr"
+            - "hog-db:8080"
+            - "--event-executor-addr"
+            - "hog-event:8090"
+            - "--view-gateway-port"
+            - "8042"
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            - name: WAIT_FOR_PORTS
+              value: "hog-mempool:8071 hog-db:8080 hog-event:8090"
+          readinessProbe:
+            tcpSocket:
+              port: 8042
+            periodSeconds: 5

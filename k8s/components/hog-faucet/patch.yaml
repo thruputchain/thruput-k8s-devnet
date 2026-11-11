@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-faucet: "true"
+    spec:
+      containers:
+        - name: hog-faucet
+          image: thruput-validator
+          command: ["python3", "/opt/thruput/scripts/faucet.py"]
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+            - secretRef:
+                name: thruput-faucet-key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 18085
+            periodSeconds: 5
+          volumeMounts:
+            - name: scripts
+              mountPath: /opt/thruput/scripts

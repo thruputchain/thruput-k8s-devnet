@@ -1,0 +1,22 @@
+# Every daemon in one pod on one node: the smallest full devnet.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: thruput
+
+resources:
+  - ../../base
+  - pods/validator
+
+components:
+  - ../../components/hog-mempool
+  - ../../components/hog-db
+  - ../../components/hog-event
+  - ../../components/hog-exec
+  - ../../components/hog-auth
+  - ../../components/hog-indexer
+  - ../../components/hog-coordinator
+  - ../../components/hog-gateway
+  - ../../components/hog-faucet
+  # Last: sets the image on every container the components above added.
+  - ../../components/release

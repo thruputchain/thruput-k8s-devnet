@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-gateway: "true"
+    spec:
+      containers:
+        - name: hog-gateway
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/thruput/scripts/gateway.sh"]
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            - name: RUST_LOG
+              value: info
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 19646
+            periodSeconds: 5
+          volumeMounts:
+            - name: scripts
+              mountPath: /opt/thruput/scripts

@@ -1,0 +1,22 @@
+# Appended, not merged: a strategic merge would put genesis ahead of the pod
+# shell's prepare-data, which must create and own /data first.
+- op: add
+  path: /spec/template/spec/initContainers/-
+  value:
+    name: genesis
+    image: thruput-validator
+    command: ["/bin/bash", "/opt/thruput/scripts/genesis.sh"]
+    envFrom:
+      - configMapRef:
+          name: thruput-settings
+    env:
+      - name: GROUNDHOG_FAUCET_PUBLIC_KEY
+        valueFrom:
+          secretKeyRef:
+            name: thruput-faucet-key
+            key: GROUNDHOG_FAUCET_PUBLIC_KEY
+    volumeMounts:
+      - name: data
+        mountPath: /data
+      - name: scripts
+        mountPath: /opt/thruput/scripts

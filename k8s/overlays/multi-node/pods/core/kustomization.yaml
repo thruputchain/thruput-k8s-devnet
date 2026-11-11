@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../pod
+
+nameSuffix: -core
+
+labels:
+  - pairs:
+      thruput.network/pod: core
+    includeSelectors: true
+    includeTemplates: true
+  # Which daemon components add their containers to this pod.
+  - pairs:
+      thruput.network/hosts-hog-mempool: "true"
+      thruput.network/hosts-hog-db: "true"
+      thruput.network/hosts-hog-event: "true"
+      thruput.network/hosts-hog-exec: "true"
+      thruput.network/hosts-hog-auth: "true"
+      thruput.network/hosts-hog-coordinator: "true"
+
+patches:
+  # Schedule this pod onto nodes labelled for it:
+  #   kubectl label node <node> thruput.network/node-role=core
+  - target:
+      kind: StatefulSet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          thruput.network/node-role: core

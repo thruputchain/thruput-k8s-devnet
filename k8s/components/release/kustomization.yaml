@@ -1,0 +1,9 @@
+# The validator image every container runs. scripts/set-image.py moves newTag
+# to a new Thruput release; pin a digest in an overlay for anything long-lived.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+images:
+  - name: thruput-validator
+    newName: ghcr.io/thruputchain/thruput-validator
+    newTag: 0.1.32

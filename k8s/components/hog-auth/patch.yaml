@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-auth: "true"
+    spec:
+      containers:
+        - name: hog-auth
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-auth"]
+          args:
+            - "--mempool-addr"
+            - "hog-mempool:8074"
+            - "--bind-ip"
+            - "__CONTAINER_IP__"
+            - "--db-port"
+            - "8050"
+            - "--mempool-port"
+            - "8051"
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            - name: WAIT_FOR_PORTS
+              value: "hog-mempool:8074"
+          readinessProbe:
+            tcpSocket:
+              port: 8051
+            periodSeconds: 5

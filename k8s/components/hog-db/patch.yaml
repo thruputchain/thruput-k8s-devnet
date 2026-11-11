@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-db: "true"
+    spec:
+      containers:
+        - name: hog-db
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-db"]
+          args:
+            - "--db-path"
+            - "/data/hogdb"
+            - "--ram-bytes"
+            - "$(DB_RAM_BYTES)"
+            - "--bind-ip"
+            - "__CONTAINER_IP__"
+            - "--coordinator-addr"
+            - "hog-mempool:8072"
+            - "--executor-port"
+            - "8080"
+            - "--mempool-port"
+            - "8081"
+            - "--auth-port"
+            - "8082"
+            - "--gateway-port"
+            - "8084"
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            - name: WAIT_FOR_PORTS
+              value: "hog-mempool:8072"
+          readinessProbe:
+            tcpSocket:
+              port: 8084
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data

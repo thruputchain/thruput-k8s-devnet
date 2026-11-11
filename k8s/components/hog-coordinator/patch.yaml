@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-coordinator: "true"
+    spec:
+      containers:
+        - name: hog-coordinator
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/thruput/scripts/coordinator.sh"]
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            # Only the scheduler port: the rest open after genesis commits.
+            - name: WAIT_FOR_PORTS
+              value: "hog-mempool:8070"
+          readinessProbe:
+            exec:
+              command: ["test", "-s", "/data/coordinator/bootstrap/runtime-manifest.json"]
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: scripts
+              mountPath: /opt/thruput/scripts
+            - name: coordinator-config
+              mountPath: /etc/groundhog/chuckd
+              readOnly: true
+        # Serves only genesis metadata and the runtime manifest, read-only.
+        - name: hog-bootstrap
+          image: thruput-validator
+          command:
+            - python3
+            - -m
+            - http.server
+            - "8088"
+            - --bind
+            - 0.0.0.0
+            - --directory
+            - /bootstrap
+          readinessProbe:
+            tcpSocket:
+              port: 8088
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /bootstrap
+              subPath: coordinator/bootstrap
+              readOnly: true

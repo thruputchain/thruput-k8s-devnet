@@ -1,0 +1,9 @@
+# One pod shell. Each overlay instantiates it once per pod with a nameSuffix
+# and a `thruput.network/pod` selector label, and marks which daemons it hosts
+# with `thruput.network/hosts-<daemon>: "true"` on the StatefulSet. The daemon
+# components in ../components add their containers to the marked shells.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - statefulset.yaml

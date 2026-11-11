@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-indexer: "true"
+    spec:
+      containers:
+        - name: hog-indexer
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-indexer"]
+          args:
+            - "--event-addr"
+            - "hog-event:8092"
+            - "--bind-ip"
+            - "__CONTAINER_IP__"
+            - "--db-path"
+            - "/data/indexer/db"
+            - "--event-port"
+            - "8060"
+            - "--block-explorer-port"
+            - "8061"
+            - "--metrics-port"
+            - "8062"
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          env:
+            - name: WAIT_FOR_PORTS
+              value: "hog-event:8092"
+          readinessProbe:
+            tcpSocket:
+              port: 8061
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data

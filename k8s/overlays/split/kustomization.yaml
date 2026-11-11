@@ -1,0 +1,30 @@
+# One pod per daemon. The scheduler spreads them over whatever nodes exist.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: thruput
+
+resources:
+  - ../../base
+  - pods/mempool
+  - pods/db
+  - pods/event
+  - pods/exec
+  - pods/auth
+  - pods/indexer
+  - pods/coordinator
+  - pods/gateway
+  - pods/faucet
+
+components:
+  - ../../components/hog-mempool
+  - ../../components/hog-db
+  - ../../components/hog-event
+  - ../../components/hog-exec
+  - ../../components/hog-auth
+  - ../../components/hog-indexer
+  - ../../components/hog-coordinator
+  - ../../components/hog-gateway
+  - ../../components/hog-faucet
+  # Last: sets the image on every container the components above added.
+  - ../../components/release

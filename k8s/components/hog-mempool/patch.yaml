@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    metadata:
+      labels:
+        thruput.network/hog-mempool: "true"
+    spec:
+      containers:
+        - name: hog-mempool
+          image: thruput-validator
+          command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-mempool"]
+          args:
+            - "--bind-ip"
+            - "__CONTAINER_IP__"
+            - "--network-hash"
+            - "$(NETWORK_HASH)"
+            - "--num-db-shards"
+            - "1"
+            - "--num-exec-shards"
+            - "1"
+            - "--db-port"
+            - "8072"
+            - "--executor-port"
+            - "8071"
+            - "--event-port"
+            - "8073"
+            - "--auth-port"
+            - "8074"
+            - "--coordinator-port"
+            - "8070"
+            - "--gateway-port"
+            - "8075"
+            - "--metrics-port"
+            - "8076"
+          envFrom:
+            - configMapRef:
+                name: thruput-settings
+          readinessProbe:
+            tcpSocket:
+              port: 8070
+            periodSeconds: 5
