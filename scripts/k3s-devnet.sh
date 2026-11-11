@@ -136,14 +136,16 @@ check_topology() {
   if [[ -n "$recorded" && "$recorded" != "$placement" ]]; then
     die "this overlay places daemons differently from the deployed chain; run 'down --purge' first"
   fi
-  existing=$(deployed_statefulsets)
-  if [[ -n "$existing" && "$existing" != "$wanted" ]]; then
+  # A subset is fine: an interrupted 'up' of this overlay may not have
+  # created every pod or volume yet. Anything outside the overlay is not.
+  existing=$(deployed_statefulsets | comm -23 - <(echo "$wanted"))
+  if [[ -n "$existing" ]]; then
     die "a different topology is deployed (${existing//$'\n'/ }); run 'down --purge' first"
   fi
-  volumes=$(kubectl -n "$namespace" get pvc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
-    grep '^data-' | sort || true)
   expected=$(awk '{print "data-" $0 "-0"}' <<<"$wanted" | sort)
-  if [[ -n "$volumes" && "$volumes" != "$expected" ]]; then
+  volumes=$(kubectl -n "$namespace" get pvc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null |
+    grep '^data-' | sort | comm -23 - <(echo "$expected") || true)
+  if [[ -n "$volumes" ]]; then
     die "chain volumes from another topology remain (${volumes//$'\n'/ }); run 'down --purge' first"
   fi
 }
@@ -304,6 +306,7 @@ cmd_local_cluster() {
   done
   need k3d
   need docker
+  need kubectl
   local image platform archive
   image=$(default_image)
   case "$(docker info --format '{{.Architecture}}')" in
@@ -324,6 +327,9 @@ cmd_local_cluster() {
     k3d cluster create "$name" --agents "$agents" --wait \
       -p "18545:18545@loadbalancer" -p "19646:19646@loadbalancer" -p "18085:18085@loadbalancer"
   fi
+  # Point kubectl at this cluster on both paths, so the next 'up' lands here.
+  k3d kubeconfig merge "$name" --kubeconfig-merge-default --kubeconfig-switch-context >/dev/null
+  [[ "$(kubectl config current-context)" == "k3d-$name" ]] || die "kubectl is not using k3d-$name"
   k3d image import -c "$name" "$archive"
   rm -f "$archive"
   echo "k3d cluster $name has $image; RPC, readiness, and faucet map to localhost 18545, 19646, 18085"

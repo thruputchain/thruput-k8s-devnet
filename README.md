@@ -19,7 +19,8 @@ Each pod owns its chain volume, so switching topology needs `down --purge`
 first.
 
 On a laptop, create a local k3d cluster first. It pulls the validator image
-into Docker once and loads it into every node:
+into Docker once, loads it into every node, and switches kubectl to the
+cluster, including when it already exists:
 
 ```bash
 ./scripts/k3s-devnet.sh local-cluster --agents 2   # three k3s nodes
