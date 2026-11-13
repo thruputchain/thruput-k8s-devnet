@@ -312,7 +312,12 @@ PY
   # Jobs are immutable; replace the previous smoke Job with this apply's.
   kubectl -n "$namespace" delete job thruput-smoke --ignore-not-found --wait=true >/dev/null
   if [[ "$keys" == generate ]]; then
+    # Keys first: workloads would create chain volumes, and volumes without
+    # keys block every later 'up' (see above).
     kubectl -n "$namespace" delete job thruput-keygen --ignore-not-found --wait=true >/dev/null
+    manifest_documents "$manifest" keygen | kubectl apply -f -
+    kubectl -n "$namespace" wait job/thruput-keygen --for=condition=Complete --timeout=300s >/dev/null ||
+      die "key generation failed; see: kubectl -n $namespace logs job/thruput-keygen"
   fi
   manifest_documents "$manifest" rest | kubectl apply -f -
   # Not labelled part-of: a plain 'down' keeps it with the chain volumes.
@@ -330,8 +335,13 @@ manifest_documents() {
 import re
 import sys
 documents = re.split(r"(?m)^---\s*$", open(sys.argv[1], encoding="utf-8").read())
-print("\n---\n".join(doc for doc in documents if
-      bool(re.search(r"(?m)^kind: Namespace$", doc)) == (sys.argv[2] == "namespace")))
+def wanted(doc):
+    if sys.argv[2] == "namespace":
+        return bool(re.search(r"(?m)^kind: Namespace$", doc))
+    if sys.argv[2] == "keygen":  # the keygen Job, its RBAC, and the scripts it runs
+        return bool(re.search(r"(?m)^  name: thruput-keygen$", doc) or re.search(r"(?m)^kind: ConfigMap$", doc))
+    return not re.search(r"(?m)^kind: Namespace$", doc)
+print("\n---\n".join(doc for doc in documents if wanted(doc)))
 PY
 }
 
