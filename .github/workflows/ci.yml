@@ -9,6 +9,128 @@ permissions:
   contents: read
 
 jobs:
+  cluster:
+    needs: manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        keys: [generate, byo]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
+      - name: Install kind and create cluster
+        run: |
+          df -h
+          curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind' | sha256sum -c -
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+          kind create cluster --config .github/kind/cluster.yaml --wait 120s
+      - name: Install networking and cluster extensions
+        run: |
+          curl -fsSL -o /tmp/calico.yaml https://raw.githubusercontent.com/projectcalico/calico/v3.32.3/manifests/calico.yaml
+          kubectl create --dry-run=client --validate=false -f /tmp/calico.yaml -o json > /tmp/calico.json
+          # Match kind's default pod subnet before Calico creates its IP pool.
+          python3 - <<'PY' | kubectl apply -f -
+          import json
+          # kubectl prints one JSON object per document, not a List.
+          text, decoder, items, index = open('/tmp/calico.json').read(), json.JSONDecoder(), [], 0
+          while index < len(text):
+              if text[index].isspace():
+                  index += 1
+                  continue
+              item, index = decoder.raw_decode(text, index)
+              items.extend(item['items'] if item.get('kind') == 'List' else [item])
+          manifest = {'apiVersion': 'v1', 'kind': 'List', 'items': items}
+          for item in manifest['items']:
+              if item['kind'] == 'DaemonSet' and item['metadata']['name'] == 'calico-node':
+                  for container in item['spec']['template']['spec']['containers']:
+                      if container['name'] == 'calico-node':
+                          env = container.setdefault('env', [])
+                          env[:] = [v for v in env if v['name'] != 'CALICO_IPV4POOL_CIDR']
+                          env.append({'name': 'CALICO_IPV4POOL_CIDR', 'value': '10.244.0.0/16'})
+          print(json.dumps(manifest))
+          PY
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=300s
+          kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=300s
+          kubectl wait nodes --all --for=condition=Ready --timeout=300s
+          helm repo add traefik https://traefik.github.io/charts
+          helm install traefik traefik/traefik --version 42.1.3 --namespace traefik --create-namespace --wait --timeout 5m \
+            --set ports.web.hostPort=80 --set ports.websecure.hostPort=443 \
+            --set-string nodeSelector.ingress-ready=true --set service.type=ClusterIP \
+            --set ingressClass.name=traefik \
+            --set 'tolerations[0].key=node-role.kubernetes.io/control-plane' \
+            --set 'tolerations[0].operator=Exists' --set 'tolerations[0].effect=NoSchedule'
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.20.5/cert-manager.yaml
+          kubectl -n cert-manager rollout status deployment/cert-manager --timeout=300s
+          kubectl -n cert-manager rollout status deployment/cert-manager-cainjector --timeout=300s
+          kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=300s
+          # The webhook can refuse connections briefly after its rollout.
+          cat > /tmp/issuer.yaml <<'YAML'
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: selfsigned
+          spec:
+            selfSigned: {}
+          YAML
+          for attempt in $(seq 1 30); do
+            kubectl apply -f /tmp/issuer.yaml && break
+            [[ $attempt -lt 30 ]] || exit 1
+            sleep 5
+          done
+          kubectl apply --server-side -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.94.2/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
+          kubectl wait --for=condition=Established crd/servicemonitors.monitoring.coreos.com --timeout=60s
+      - name: Supply existing keys
+        if: matrix.keys == 'byo'
+        run: |
+          kubectl create namespace thruput
+          python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -
+      - name: Deploy and smoke
+        env:
+          KEYS: ${{ matrix.keys }}
+        run: |
+          ./scripts/k3s-devnet.sh up --overlay production --keys "$KEYS" \
+            --ingress rpc.devnet.test,faucet.devnet.test --ingress-class traefik \
+            --cluster-issuer selfsigned --monitoring
+      - name: Check ingress, isolation, and disruption budgets
+        run: |
+          kubectl -n thruput wait certificates --all --for=condition=Ready --timeout=180s
+          curl -fsk --retry 12 --retry-all-errors --retry-delay 5 \
+            --resolve rpc.devnet.test:443:127.0.0.1 https://rpc.devnet.test/ \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"getChainTip","params":[]}' | \
+            python3 -c 'import json,sys; assert json.load(sys.stdin).get("result") is not None'
+          test "$(curl -sk --retry 12 --retry-all-errors --retry-delay 5 -o /dev/null -w '%{http_code}' \
+            --resolve faucet.devnet.test:443:127.0.0.1 https://faucet.devnet.test/health)" = 200
+          kubectl run isolation-check -n default --image=busybox:1.37.0 --restart=Never \
+            --command -- sh -ec 'if nc -z -w 3 hog-mempool.thruput 8070; then exit 1; fi; nc -z -w 3 hog-gateway.thruput 18545'
+          kubectl -n default wait pod/isolation-check --for=jsonpath='{.status.phase}'=Succeeded --timeout=120s
+          kubectl -n thruput get statefulsets,poddisruptionbudgets -o json > /tmp/budgets.json
+          python3 - <<'PY'
+          import json
+          items = json.load(open('/tmp/budgets.json'))['items']
+          budgets = [x for x in items if x['kind'] == 'PodDisruptionBudget']
+          for sts in (x for x in items if x['kind'] == 'StatefulSet'):
+              labels = sts['spec']['template']['metadata']['labels']
+              assert any(all(labels.get(k) == v for k, v in p['spec']['selector']['matchLabels'].items()) for p in budgets), sts['metadata']['name']
+          PY
+          test "$(kubectl get namespace thruput -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" = restricted
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n thruput describe pods || true
+          kubectl -n thruput get events --sort-by=.lastTimestamp || true
+          kubectl -n thruput get ingress,certificates,networkpolicies,poddisruptionbudgets || true
+          for pod in $(kubectl -n thruput get pods -o name); do
+            kubectl -n thruput logs "$pod" --all-containers --tail=80 --prefix || true
+          done
+
   workflow-lint:
     permissions:
       contents: read
