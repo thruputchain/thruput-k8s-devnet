@@ -29,7 +29,8 @@ jobs:
           echo 'aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind' | sha256sum -c -
           chmod +x kind
           sudo mv kind /usr/local/bin/kind
-          kind create cluster --config .github/kind/cluster.yaml --wait 120s
+          # No --wait: nodes stay NotReady until Calico is installed below.
+          kind create cluster --config .github/kind/cluster.yaml
       - name: Install networking and cluster extensions
         run: |
           curl -fsSL -o /tmp/calico.yaml https://raw.githubusercontent.com/projectcalico/calico/v3.32.3/manifests/calico.yaml
