@@ -298,9 +298,15 @@ PY
   check_topology "$(statefulsets_in "$manifest")" "$placement"
 
   manifest_documents "$manifest" namespace | kubectl apply -f -
-  if [[ "$keys" == byo ]]; then
-    kubectl -n "$namespace" get secret thruput-validator-key thruput-faucet-key >/dev/null 2>&1 ||
+  if ! kubectl -n "$namespace" get secret thruput-validator-key thruput-faucet-key >/dev/null 2>&1; then
+    if [[ "$keys" == byo ]]; then
       die "required key Secrets are missing; create them: python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -"
+    fi
+    # Genesis is bound to the keys it was minted with: new keys cannot
+    # resume an existing chain (including one from before per-deployment keys).
+    if kubectl -n "$namespace" get pvc -o name 2>/dev/null | grep -q '/data-'; then
+      die "chain volumes exist but their keys do not; restore the key Secrets, or run 'down --purge' for a new chain"
+    fi
   fi
   ensure_registry_secret
   # Jobs are immutable; replace the previous smoke Job with this apply's.

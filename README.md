@@ -86,7 +86,10 @@ python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -
 
 Keep custom key Secrets labelled `thruput.network/keys: "true"`. Plain `down`
 keeps keys and chain volumes. `down --purge` deletes the namespace, including
-keys and volumes. Keep the same faucet key when resuming an existing chain.
+keys and volumes. A chain only resumes with the keys it was minted with, so
+`up` refuses to generate keys while chain volumes exist without them. Chains
+created before per-deployment keys used the old public test keys: start them
+over with `down --purge`.
 
 Ingress needs an installed controller and cert-manager. Point both DNS names
 at the controller and supply an existing ClusterIssuer with `--cluster-issuer`.
