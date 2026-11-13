@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import ssl
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,20 +28,56 @@ def base58(value: bytes) -> str:
     return "1" * (len(value) - len(value.lstrip(b"\0"))) + result
 
 
+# Ed25519 public key derivation (RFC 8032, section 5.1.5), so key generation
+# needs no crypto library and no particular openssl build.
+P = 2**255 - 19
+L = 2**252 + 27742317777372353535851937790883648493
+D = -121665 * pow(121666, P - 2, P) % P
+GY = 4 * pow(5, P - 2, P) % P
+
+
+def _recover_x(y: int, sign: int) -> int:
+    x2 = (y * y - 1) * pow(D * y * y + 1, P - 2, P) % P
+    x = pow(x2, (P + 3) // 8, P)
+    if (x * x - x2) % P:
+        x = x * pow(2, (P - 1) // 4, P) % P
+    return P - x if x & 1 != sign else x
+
+
+G = (_recover_x(GY, 0), GY, 1, _recover_x(GY, 0) * GY % P)
+
+
+def _add(a: tuple, b: tuple) -> tuple:
+    p1 = (a[1] - a[0]) * (b[1] - b[0]) % P
+    p2 = (a[1] + a[0]) * (b[1] + b[0]) % P
+    p3 = 2 * a[3] * b[3] * D % P
+    p4 = 2 * a[2] * b[2] % P
+    e, f, g, h = p2 - p1, p4 - p3, p4 + p3, p2 + p1
+    return (e * f % P, g * h % P, f * g % P, e * h % P)
+
+
+def _multiply(scalar: int, point: tuple) -> tuple:
+    result = (0, 1, 1, 0)
+    while scalar:
+        if scalar & 1:
+            result = _add(result, point)
+        point = _add(point, point)
+        scalar >>= 1
+    return result
+
+
 def keypair(seed: bytes | None = None) -> tuple[bytes, bytes]:
     seed = os.urandom(32) if seed is None else seed
     if len(seed) != 32:
         raise ValueError("Ed25519 seed must be 32 bytes")
-    result = subprocess.run(
-        ["openssl", "pkey", "-inform", "DER", "-pubout", "-outform", "DER"],
-        input=bytes.fromhex("302e020100300506032b657004220420") + seed,
-        capture_output=True,
-    )
-    if result.returncode or len(result.stdout) != 44 or not result.stdout.startswith(
-        bytes.fromhex("302a300506032b6570032100")
-    ):
-        raise RuntimeError("openssl pkey could not derive an Ed25519 public key")
-    return seed, result.stdout[-32:]
+    digest = hashlib.sha512(seed).digest()
+    scalar = int.from_bytes(digest[:32], "little")
+    scalar &= (1 << 254) - 8
+    scalar |= 1 << 254
+    x, y, z, _ = _multiply(scalar, G)
+    zinv = pow(z, P - 2, P)
+    x, y = x * zinv % P, y * zinv % P
+    return seed, (y | (x & 1) << 255).to_bytes(32, "little")
 
 
 def secret(name: str, namespace: str, seed: bytes | None = None) -> dict:

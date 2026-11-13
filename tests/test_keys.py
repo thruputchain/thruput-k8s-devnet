@@ -21,12 +21,6 @@ PUBLIC = "F25s3DdjXdCxYBhh2z8FBusVEMT4b9bGNFVKJi3wFoF4"
 
 
 class KeyTests(unittest.TestCase):
-    def setUp(self):
-        try:
-            keygen.keypair(SEED)
-        except (OSError, RuntimeError):
-            self.skipTest("openssl lacks Ed25519 support")
-
     def test_known_answer_and_validator_layout(self):
         seed, public = keygen.keypair(SEED)
         self.assertTrue(keygen.base58(public) == PUBLIC)
@@ -134,10 +128,7 @@ class TemplateTests(unittest.TestCase):
     def test_coordinator_render_is_private_and_complete(self):
         import os
         import stat
-        try:
-            seed, public = keygen.keypair(SEED)
-        except (OSError, RuntimeError):
-            self.skipTest("openssl lacks Ed25519 support")
+        seed, public = keygen.keypair(SEED)
         script = (K8S / "base/scripts/coordinator.sh").read_text()
         renderer = script.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
         with tempfile.TemporaryDirectory() as directory:
