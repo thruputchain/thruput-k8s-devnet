@@ -392,7 +392,8 @@ cmd_down() {
     if kubectl api-resources --api-group=monitoring.coreos.com -o name 2>/dev/null | grep -q '^servicemonitors\.'; then
       kinds+=,servicemonitors.monitoring.coreos.com
     fi
-    kubectl -n "$namespace" delete "$kinds" -l "$part_of" --ignore-not-found
+    # Never the key Secrets, even if an overlay gives them the part-of label.
+    kubectl -n "$namespace" delete "$kinds" -l "$part_of,thruput.network/keys!=true" --ignore-not-found
     echo "kept the chain volumes and keys: 'up' with the same overlay resumes that chain;"
     echo "'down --purge' deletes it, which a different overlay requires"
   fi

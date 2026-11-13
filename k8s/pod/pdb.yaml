@@ -3,6 +3,8 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: thruput
+  labels:
+    app.kubernetes.io/part-of: thruput
 spec:
   maxUnavailable: 0
   selector:
