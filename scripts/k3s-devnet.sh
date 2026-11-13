@@ -381,7 +381,12 @@ cmd_down() {
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true
     echo "deleted namespace $namespace, its chain data, and its keys"
   else
-    kubectl -n "$namespace" delete statefulset,job,service,configmap,secret -l "$part_of" --ignore-not-found
+    local kinds=statefulset,job,service,configmap,secret,poddisruptionbudget,ingress,networkpolicy,serviceaccount,role,rolebinding
+    # Optional: present only where the Prometheus Operator CRDs are installed.
+    if kubectl api-resources --api-group=monitoring.coreos.com -o name 2>/dev/null | grep -q '^servicemonitors\.'; then
+      kinds+=,servicemonitors.monitoring.coreos.com
+    fi
+    kubectl -n "$namespace" delete "$kinds" -l "$part_of" --ignore-not-found
     echo "kept the chain volumes and keys: 'up' with the same overlay resumes that chain;"
     echo "'down --purge' deletes it, which a different overlay requires"
   fi
