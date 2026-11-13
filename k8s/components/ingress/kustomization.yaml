@@ -1,0 +1,18 @@
+# Publishes the gateway and faucet through an Ingress with cert-manager TLS
+# instead of LoadBalancer Services. Set the hosts, class, and issuer with
+# JSON patches on Ingress hog-gateway / hog-faucet (scripts/k3s-devnet.sh
+# up --ingress does this).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - ingresses.yaml
+
+patches:
+  - target:
+      kind: Service
+      name: hog-gateway|hog-faucet
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: ClusterIP

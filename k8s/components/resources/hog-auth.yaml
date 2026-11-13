@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: any
+spec:
+  template:
+    spec:
+      containers:
+        - name: hog-auth
+          resources:
+            requests:
+              cpu: 50m
+              memory: 1500Mi
+            limits:
+              memory: 2Gi

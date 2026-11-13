@@ -4,6 +4,10 @@
   path: /spec/template/spec/initContainers/-
   value:
     name: genesis
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
     image: thruput-validator
     command: ["/bin/bash", "/opt/thruput/scripts/genesis.sh"]
     envFrom:

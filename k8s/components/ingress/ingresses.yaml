@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hog-gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [rpc.devnet.example]
+      secretName: hog-gateway-tls
+  rules:
+    - host: rpc.devnet.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hog-gateway
+                port:
+                  number: 18545
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hog-faucet
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [faucet.devnet.example]
+      secretName: hog-faucet-tls
+  rules:
+    - host: faucet.devnet.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hog-faucet
+                port:
+                  number: 18085

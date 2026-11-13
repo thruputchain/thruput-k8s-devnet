@@ -1,0 +1,10 @@
+# Validator daemons are one restart domain; voluntary eviction of one pod halts the chain.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: thruput
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: thruput

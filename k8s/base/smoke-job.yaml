@@ -18,10 +18,17 @@ spec:
       imagePullSecrets:
         - name: thruput-registry
       securityContext:
+        runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: smoke
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           image: thruput-validator
           command: ["/bin/bash", "/opt/thruput/scripts/smoke.sh"]
           envFrom:

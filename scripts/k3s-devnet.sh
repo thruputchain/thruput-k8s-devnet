@@ -259,7 +259,7 @@ cmd_status() {
   [[ -n "$statefulset" ]] || die "no validator is deployed"
   image=$(kubectl -n "$namespace" get statefulset "$statefulset" -o jsonpath='{.spec.template.spec.containers[0].image}')
   kubectl -n "$namespace" run "tip-$RANDOM" --rm -i --restart=Never --quiet --image="$image" \
-    --overrides='{"spec":{"imagePullSecrets":[{"name":"thruput-registry"}]}}' \
+    --override-type=json --overrides='[{"op":"add","path":"/spec/imagePullSecrets","value":[{"name":"thruput-registry"}]},{"op":"add","path":"/spec/securityContext","value":{"runAsNonRoot":true,"runAsUser":999,"runAsGroup":999,"seccompProfile":{"type":"RuntimeDefault"}}},{"op":"add","path":"/spec/containers/0/securityContext","value":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]' \
     --command -- python3 -c '
 import json, urllib.request
 request = urllib.request.Request("http://hog-gateway:18545", method="POST",

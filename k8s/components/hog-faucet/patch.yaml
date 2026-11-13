@@ -10,6 +10,10 @@ spec:
     spec:
       containers:
         - name: hog-faucet
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           image: thruput-validator
           command: ["python3", "/opt/thruput/scripts/faucet.py"]
           envFrom:
