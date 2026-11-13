@@ -1,0 +1,64 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hog-mempool
+spec:
+  selector:
+    matchLabels:
+      thruput.network/metrics-service: hog-mempool
+
+  endpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hog-exec
+spec:
+  selector:
+    matchLabels:
+      thruput.network/metrics-service: hog-exec
+
+  endpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hog-indexer
+spec:
+  selector:
+    matchLabels:
+      thruput.network/metrics-service: hog-indexer
+
+  endpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hog-coordinator
+spec:
+  selector:
+    matchLabels:
+      thruput.network/metrics-service: hog-coordinator
+
+  endpoints:
+    - port: metrics
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hog-gateway
+spec:
+  selector:
+    matchLabels:
+      thruput.network/metrics-service: hog-gateway
+
+  endpoints:
+    - port: observability
+      path: /metrics

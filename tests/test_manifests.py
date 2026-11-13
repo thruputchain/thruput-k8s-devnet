@@ -38,9 +38,62 @@ def hosted_daemons(pod_kustomization: Path) -> list[str]:
 
 
 class ManifestContractTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("kubectl"), "kubectl not installed")
+    def test_rendered_pods_use_restricted_security_contexts(self) -> None:
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed; needed to parse rendered manifests")
+        for overlay in sorted((K8S / "overlays").iterdir()):
+            if not overlay.is_dir():
+                continue
+            rendered = subprocess.run(
+                ["kubectl", "kustomize", str(overlay)], check=True, capture_output=True, text=True
+            ).stdout
+            pods = []
+            budgets = []
+            for resource in yaml.safe_load_all(rendered):
+                if not resource:
+                    continue
+                kind = resource["kind"]
+                if kind == "PodDisruptionBudget":
+                    budgets.append(resource)
+                if kind == "Pod":
+                    pod = resource
+                elif kind in {"StatefulSet", "Deployment", "DaemonSet", "ReplicaSet", "Job"}:
+                    pod = resource["spec"]["template"]
+                elif kind == "CronJob":
+                    pod = resource["spec"]["jobTemplate"]["spec"]["template"]
+                else:
+                    continue
+                pods.append(pod)
+                with self.subTest(overlay=overlay.name, resource=resource["metadata"]["name"]):
+                    spec = pod["spec"]
+                    security = spec.get("securityContext", {})
+                    self.assertIs(security.get("runAsNonRoot"), True)
+                    self.assertEqual(security.get("seccompProfile"), {"type": "RuntimeDefault"})
+                    self.assertNotEqual(security.get("runAsUser"), 0)
+                    for container in spec.get("containers", []) + spec.get("initContainers", []):
+                        context = container.get("securityContext", {})
+                        self.assertIs(context.get("allowPrivilegeEscalation"), False, container["name"])
+                        self.assertEqual(context.get("capabilities", {}).get("drop"), ["ALL"], container["name"])
+                        self.assertNotEqual(context.get("runAsUser"), 0, container["name"])
+            self.assertTrue(pods, overlay.name)
+            for budget in budgets:
+                selector = budget["spec"]["selector"]["matchLabels"]
+                self.assertIn("thruput.network/pod", selector)
+                self.assertEqual(budget["spec"]["maxUnavailable"], 0)
+                matches = [pod for pod in pods if all(
+                    pod["metadata"].get("labels", {}).get(key) == value
+                    for key, value in selector.items()
+                )]
+                self.assertEqual(len(matches), 1, budget["metadata"]["name"])
+
     def overlays(self) -> list[Path]:
-        overlays = sorted(path for path in (K8S / "overlays").iterdir() if path.is_dir())
-        self.assertEqual([path.name for path in overlays], ["multi-node", "single-pod", "split"])
+        # These topologies own pod placements; production composes an existing topology.
+        overlays = [K8S / "overlays" / name for name in ("multi-node", "single-pod", "split")]
+        for overlay in overlays:
+            self.assertTrue(overlay.is_dir(), str(overlay))
         return overlays
 
     def test_release_pins_one_published_tag(self) -> None:

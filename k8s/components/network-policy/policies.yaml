@@ -1,0 +1,91 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-namespace
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-gateway
+spec:
+  podSelector: 
+    matchLabels:
+      thruput.network/hog-gateway: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 18545
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-faucet
+spec:
+  podSelector: 
+    matchLabels:
+      thruput.network/hog-faucet: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - from: []
+      ports:
+        - protocol: TCP
+          port: 18085
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-scrape
+spec:
+  podSelector: 
+    matchLabels:
+      app.kubernetes.io/part-of: thruput
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              thruput.network/metrics-scraper: "true"
+      ports:
+        - protocol: TCP
+          port: 8076
+        - protocol: TCP
+          port: 8041
+        - protocol: TCP
+          port: 8062
+        - protocol: TCP
+          port: 9101
+        - protocol: TCP
+          port: 19646
+---
+# ACME HTTP-01: the ingress controller (any namespace) must reach the
+# challenge solver pods cert-manager starts in this namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-acme-http01-solver
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8089

@@ -38,13 +38,81 @@ new chain starts on the next `up`. `up` refuses to run while workloads or
 volumes from a different topology remain, or when an overlay moves a daemon
 to a different pod. The `thruput-topology` ConfigMap records the placement.
 
-Without the script, apply an overlay directly. Delete the finished
+Without the script, create the key Secrets first, then apply an overlay. Delete the finished
 `thruput-smoke` Job first, because a Job cannot be changed in place:
 
 ```bash
+kubectl create namespace thruput
+python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -
 kubectl -n thruput delete job thruput-smoke --ignore-not-found
 kubectl apply -k k8s/overlays/single-pod
 ```
+
+## Production clusters
+
+The `production` overlay runs three pods (`core`, `indexer`, `edge`). Preferred
+anti-affinity spreads them across nodes when capacity allows. It sets
+`DEV_ACCOUNTS=0`, so genesis funds no public dev accounts.
+
+```bash
+./scripts/k3s-devnet.sh up --overlay production --keys generate \
+  --storage-class fast --volume-size 100Gi \
+  --ingress rpc.example.com,faucet.example.com --ingress-class traefik \
+  --cluster-issuer letsencrypt --monitoring
+```
+
+Choose a storage class available on your cluster. Storage defaults to the
+cluster's default class and `20Gi`. An existing StatefulSet cannot change its
+`volumeClaimTemplates`: run `down` first, then `up` with the new options.
+Existing volumes keep their old class and size. Provision or migrate volumes
+separately when changing storage for an existing chain.
+
+`--keys generate` (the default) runs a Job that creates random identities only
+when their Secrets are missing. `--keys byo` requires both Secrets to exist.
+There are no checked-in test keys.
+
+| Secret | Fields in `stringData` |
+| --- | --- |
+| `thruput-validator-key` | `VALIDATOR_SECRET_KEY`: hex Ed25519 seed + public key (64 bytes); `VALIDATOR_PUBLIC_KEY`: base58 public key |
+| `thruput-faucet-key` | `GROUNDHOG_FAUCET_SECRET_KEY`: hex Ed25519 seed (32 bytes); `GROUNDHOG_FAUCET_PUBLIC_KEY`: base58 public key |
+
+To create both locally:
+
+```bash
+kubectl create namespace thruput
+python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -
+./scripts/k3s-devnet.sh up --overlay production --keys byo
+```
+
+Keep custom key Secrets labelled `thruput.network/keys: "true"`. Plain `down`
+keeps keys and chain volumes. `down --purge` deletes the namespace, including
+keys and volumes. A chain only resumes with the keys it was minted with, so
+`up` refuses to generate keys while chain volumes exist without them. Chains
+created before per-deployment keys used the old public test keys: start them
+over with `down --purge`.
+
+Ingress needs an installed controller and cert-manager. Point both DNS names
+at the controller and supply an existing ClusterIssuer with `--cluster-issuer`.
+The wrapper prints HTTPS endpoints and switches the public Services to
+ClusterIP. Use `--public-rpc-url https://rpc.example.com` when the faucet should
+advertise that address; it must also be reachable from inside the cluster.
+
+`--monitoring` needs the Prometheus Operator ServiceMonitor CRD. Configure
+Prometheus to select these ServiceMonitors and label its namespace:
+
+```bash
+kubectl label namespace <prometheus-namespace> thruput.network/metrics-scraper=true
+```
+
+Production NetworkPolicies deny other inbound traffic, allow traffic between
+pods in `thruput`, expose RPC and faucet, and allow metrics from labelled
+scraper namespaces. Install a CNI that enforces NetworkPolicy. The namespace
+enforces Pod Security `restricted`.
+
+Each StatefulSet has a PodDisruptionBudget that keeps its single replica
+available. Drains stop on these budgets. For maintenance, run `down`, drain,
+then `up` with the same options. Use `restart` to restart every validator pod
+together while keeping the chain.
 
 ## What runs
 
@@ -97,6 +165,7 @@ is hosted exactly once.
 | `single-pod` | `validator`: everything |
 | `split` | one pod per daemon, placed by the scheduler |
 | `multi-node` | `core` (hogd and coordinator), `indexer`, `edge` (gateway and faucet), pinned by node label |
+| `production` | `core`, `indexer`, `edge`, spread by preferred anti-affinity |
 
 `multi-node` places pods by node label:
 
@@ -123,9 +192,9 @@ so it sets the image on every container added before it.
   in-cluster URL works for the smoke Job. Set it to a node or load-balancer
   address (`up --public-rpc-url`) when outside clients read the faucet
   descriptor.
-- `base/faucet-key.env` and `base/chuckd.json` hold deterministic,
-  publicly known test keys. Replace both with a `secretGenerator` in your
-  overlay for any cluster that untrusted people can reach.
+- Keys live in `thruput-validator-key` and `thruput-faucet-key` Secrets.
+  The wrapper generates missing keys by default. Use `--keys byo` for existing
+  identities; see Production clusters above for the formats.
 - `components/release` pins the `ghcr.io/thruputchain/thruput-validator`
   release; `scripts/set-image.py 0.1.33` moves it. `up --image NAME:TAG` or
   `NAME@sha256:DIGEST` overrides it without editing tracked files. For a
@@ -164,7 +233,9 @@ Restarting services one at a time is planned.
 python3 -m unittest discover -s tests   # manifest contract tests; needs kubectl for rendering
 ```
 
-CI renders every overlay and runs the full smoke on a k3d cluster.
+CI renders every overlay and runs the full smoke on a k3d cluster. A kind job
+checks production with generated and supplied keys, TLS ingress, and enforced
+NetworkPolicy.
 
 ## License
 

@@ -21,24 +21,29 @@ spec:
       imagePullSecrets:
         - name: thruput-registry
       securityContext:
+        runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # Every daemon keeps its state under /data/<daemon> on the pod's volume.
-        # Runs as root so any storage class works, and never uses fsGroup:
-        # hog-event refuses an outbox directory with group permissions.
+        # fsGroup grants volume access to UID 999; reset event permissions on every start
+        # because fsGroup may add group bits that hog-event refuses.
         - name: prepare-data
           image: thruput-validator
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command:
             - /bin/bash
             - -c
             - |
               set -euo pipefail
               mkdir -p /data/hogdb /data/indexer /data/event /data/coordinator/bootstrap /data/coordinator/chuckd
-              chown 999:999 /data /data/hogdb /data/indexer /data/event /data/coordinator /data/coordinator/bootstrap /data/coordinator/chuckd
               chmod 0700 /data/event
           volumeMounts:
             - name: data
@@ -48,10 +53,6 @@ spec:
         - name: scripts
           configMap:
             name: thruput-scripts
-        - name: coordinator-config
-          secret:
-            secretName: thruput-coordinator-config
-            defaultMode: 0444
   volumeClaimTemplates:
     - metadata:
         name: data

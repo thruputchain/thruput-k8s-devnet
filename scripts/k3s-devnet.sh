@@ -16,6 +16,14 @@ usage: scripts/k3s-devnet.sh <command> [options]
 commands:
   up [--overlay NAME|DIR] [--image NAME:TAG|NAME@sha256:DIGEST] [--public-rpc-url URL]
                      apply a topology, wait for the validator, run the smoke Job
+    --keys generate|byo       generate missing keys (default), or require existing Secrets
+    --storage-class NAME      volume storage class
+    --volume-size SIZE        volume size (default 20Gi)
+    --ingress RPC_HOST,FAUCET_HOST
+                             publish HTTPS endpoints through an Ingress
+    --ingress-class NAME      ingress class (default traefik)
+    --cluster-issuer NAME     cert-manager issuer (required with --ingress)
+    --monitoring             add Prometheus Operator ServiceMonitors
   smoke              rerun the post-deploy smoke Job
   status             show pods, placement, and the chain tip
   restart            restart every validator pod together (keeps the chain)
@@ -23,7 +31,7 @@ commands:
   local-cluster [--agents N] [--name NAME]
                      create a local k3d cluster and load the validator image
 
-overlays: single-pod (default), split, multi-node, or a directory of your own.
+overlays: single-pod (default), split, multi-node, production, or a directory of your own.
 image:    --image, else THRUPUT_IMAGE, else the tag in k8s/components/release.
 registry: set THRUPUT_REGISTRY_USER and THRUPUT_REGISTRY_TOKEN to create the
           thruput-registry pull secret for a private mirror.
@@ -64,16 +72,17 @@ resolve_overlay() {
 # Wrap the chosen overlay so image and URL overrides never edit tracked files.
 render_overlay() {
   local overlay=$1 image=$2 public_rpc_url=$3
-  local name pin
+  local name pin component
   if [[ "$image" == *@sha256:* ]]; then
     name=${image%@*}
     pin="    digest: ${image#*@}"
   elif [[ "${image##*/}" == *:* ]]; then
     name=${image%:*}
-    pin="    newTag: \"${image##*:}\""
+    pin="    newTag: $(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "${image##*:}")"
   else
     die "--image must be NAME:TAG or NAME@sha256:DIGEST"
   fi
+  name=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$name")
   rm -rf "$work_dir/overlay"
   mkdir -p "$work_dir/overlay"
   # Kustomize accepts only relative resource paths.
@@ -82,10 +91,19 @@ render_overlay() {
   {
     echo "apiVersion: kustomize.config.k8s.io/v1beta1"
     echo "kind: Kustomization"
+    echo "namespace: $namespace"
     echo "resources:"
-    echo "  - $overlay"
+    python3 -c 'import json, sys; print("  - " + json.dumps(sys.argv[1]))' "$overlay"
+    echo "components:"
+    for component in ${keys_generate:+keys-generate} ${ingress_hosts:+ingress} ${monitoring:+monitoring}; do
+      python3 -c 'import json, os, sys; print("  - " + json.dumps(os.path.relpath(sys.argv[1], sys.argv[2])))' \
+        "$k8s_root/components/$component" "$work_dir/overlay"
+    done
     echo "images:"
     echo "  - name: ghcr.io/thruputchain/thruput-validator"
+    echo "    newName: $name"
+    echo "$pin"
+    echo "  - name: thruput-validator"
     echo "    newName: $name"
     echo "$pin"
     if [[ -n "$public_rpc_url" ]]; then
@@ -93,9 +111,31 @@ render_overlay() {
       echo "  - name: thruput-settings"
       echo "    behavior: merge"
       echo "    literals:"
-      echo "      - PUBLIC_RPC_URL=$public_rpc_url"
+      python3 -c 'import json, sys; print("      - " + json.dumps("PUBLIC_RPC_URL=" + sys.argv[1]))' "$public_rpc_url"
     fi
   } >"$work_dir/overlay/kustomization.yaml"
+  python3 - "$work_dir/overlay/kustomization.yaml" "$storage_class" "$volume_size" "$ingress_hosts" "$ingress_class" "$cluster_issuer" <<'PY'
+import json
+import sys
+path, storage, size, hosts, ingress_class, issuer = sys.argv[1:]
+patches = []
+ops = []
+for value, field in ((storage, "storageClassName"), (size, "resources/requests/storage")):
+    if value:
+        ops.append({"op": "add", "path": "/spec/volumeClaimTemplates/0/spec/" + field, "value": value})
+if ops:
+    patches.append({"target": {"kind": "StatefulSet"}, "patch": json.dumps(ops)})
+if hosts:
+    for name, host in zip(("hog-gateway", "hog-faucet"), hosts.split(",")):
+        ops = [{"op": "replace", "path": field, "value": value} for field, value in (
+            ("/spec/rules/0/host", host), ("/spec/tls/0/hosts/0", host),
+            ("/spec/ingressClassName", ingress_class),
+            ("/metadata/annotations/cert-manager.io~1cluster-issuer", issuer))]
+        patches.append({"target": {"kind": "Ingress", "name": name}, "patch": json.dumps(ops)})
+if patches:
+    with open(path, "a", encoding="utf-8") as output:
+        output.write("patches: " + json.dumps(patches) + "\n")
+PY
   echo "$work_dir/overlay"
 }
 
@@ -187,6 +227,11 @@ wait_smoke() {
 }
 
 endpoints() {
+  if [[ -n "$ingress_hosts" ]]; then
+    printf '\nThruput devnet is up in namespace %s.\n  JSON-RPC: https://%s\n  Faucet:   https://%s\n' \
+      "$namespace" "${ingress_hosts%,*}" "${ingress_hosts#*,}"
+    return
+  fi
   cat <<EOF
 
 Thruput devnet is up in namespace $namespace.
@@ -200,15 +245,43 @@ EOF
 
 cmd_up() {
   local overlay=single-pod image public_rpc_url=""
+  local keys=generate keys_generate=1 storage_class="" volume_size=""
+  local ingress_hosts="" ingress_class=traefik cluster_issuer="" monitoring=""
   image=$(default_image)
   while (($#)); do
+    if [[ "$1" != --monitoring && $# -lt 2 ]]; then
+      die "missing value for $1"
+    fi
     case $1 in
       --overlay) overlay=$2; shift 2 ;;
       --image) image=$2; shift 2 ;;
       --public-rpc-url) public_rpc_url=$2; shift 2 ;;
+      --keys) keys=$2; shift 2 ;;
+      --storage-class) storage_class=$2; shift 2 ;;
+      --volume-size) volume_size=$2; shift 2 ;;
+      --ingress) ingress_hosts=$2; shift 2 ;;
+      --ingress-class) ingress_class=$2; shift 2 ;;
+      --cluster-issuer) cluster_issuer=$2; shift 2 ;;
+      --monitoring) monitoring=1; shift ;;
       *) die "unknown option: $1" ;;
     esac
   done
+  case $keys in
+    generate) ;;
+    byo) keys_generate="" ;;
+    *) die "--keys must be generate or byo" ;;
+  esac
+  if [[ -n "$ingress_hosts" ]]; then
+    [[ -n "$cluster_issuer" ]] || die "--cluster-issuer is required with --ingress"
+    python3 - "$ingress_hosts" <<'PY' || die "--ingress requires two DNS-1123 host names separated by a comma"
+import re
+import sys
+hosts = sys.argv[1].split(",")
+sys.exit(0 if len(hosts) == 2 and all(
+    len(host) <= 253 and all(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+                            for label in host.split(".")) for host in hosts) else 1)
+PY
+  fi
   need kubectl
   overlay=$(resolve_overlay "$overlay")
   local rendered manifest
@@ -216,7 +289,7 @@ cmd_up() {
   # Kept aside until the apply succeeds, so 'smoke' keeps the last good one.
   manifest=$work_dir/rendered.next.yaml
   kubectl kustomize "$rendered" >"$manifest"
-  if grep -E '^ +image: ' "$manifest" | grep -vqF "image: $image"; then
+  if ! awk -v chosen="$image" '/^ +image: / {if ($2 != chosen) exit 1}' "$manifest"; then
     die "the overlay sets an image other than $image; set it in the overlay instead"
   fi
   local placement
@@ -224,11 +297,29 @@ cmd_up() {
   [[ -n "$placement" ]] || die "the overlay hosts no daemons"
   check_topology "$(statefulsets_in "$manifest")" "$placement"
 
-  kubectl get namespace "$namespace" >/dev/null 2>&1 || kubectl create namespace "$namespace" >/dev/null
+  manifest_documents "$manifest" namespace | kubectl apply -f -
+  if ! kubectl -n "$namespace" get secret thruput-validator-key thruput-faucet-key >/dev/null 2>&1; then
+    if [[ "$keys" == byo ]]; then
+      die "required key Secrets are missing; create them: python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -"
+    fi
+    # Genesis is bound to the keys it was minted with: new keys cannot
+    # resume an existing chain (including one from before per-deployment keys).
+    if kubectl -n "$namespace" get pvc -o name 2>/dev/null | grep -q '/data-'; then
+      die "chain volumes exist but their keys do not; restore the key Secrets, or run 'down --purge' for a new chain"
+    fi
+  fi
   ensure_registry_secret
   # Jobs are immutable; replace the previous smoke Job with this apply's.
   kubectl -n "$namespace" delete job thruput-smoke --ignore-not-found --wait=true >/dev/null
-  kubectl apply -f "$manifest"
+  if [[ "$keys" == generate ]]; then
+    # Keys first: workloads would create chain volumes, and volumes without
+    # keys block every later 'up' (see above).
+    kubectl -n "$namespace" delete job thruput-keygen --ignore-not-found --wait=true >/dev/null
+    manifest_documents "$manifest" keygen | kubectl apply -f -
+    kubectl -n "$namespace" wait job/thruput-keygen --for=condition=Complete --timeout=300s >/dev/null ||
+      die "key generation failed; see: kubectl -n $namespace logs job/thruput-keygen"
+  fi
+  manifest_documents "$manifest" rest | kubectl apply -f -
   # Not labelled part-of: a plain 'down' keeps it with the chain volumes.
   kubectl -n "$namespace" create configmap thruput-topology --from-literal=placement="$placement" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -238,6 +329,22 @@ cmd_up() {
   endpoints
 }
 
+# kubectl kustomize emits documents separated by --- on its own line.
+manifest_documents() {
+  python3 - "$1" "$2" <<'PY'
+import re
+import sys
+documents = re.split(r"(?m)^---\s*$", open(sys.argv[1], encoding="utf-8").read())
+def wanted(doc):
+    if sys.argv[2] == "namespace":
+        return bool(re.search(r"(?m)^kind: Namespace$", doc))
+    if sys.argv[2] == "keygen":  # the keygen Job, its RBAC, and the scripts it runs
+        return bool(re.search(r"(?m)^  name: thruput-keygen$", doc) or re.search(r"(?m)^kind: ConfigMap$", doc))
+    return not re.search(r"(?m)^kind: Namespace$", doc)
+print("\n---\n".join(doc for doc in documents if wanted(doc)))
+PY
+}
+
 cmd_smoke() {
   need kubectl
   [[ -f "$work_dir/rendered.yaml" ]] || die "run up first; smoke reuses its rendered manifest"
@@ -245,7 +352,8 @@ cmd_smoke() {
   python3 - "$work_dir/rendered.yaml" <<'EOF' | kubectl apply -f - >/dev/null
 import sys
 documents = open(sys.argv[1], encoding="utf-8").read().split("\n---\n")
-print("\n---\n".join(d for d in documents if "\nkind: Job\n" in "\n" + d + "\n"))
+print("\n---\n".join(d for d in documents if "\nkind: Job\n" in "\n" + d + "\n"
+                       and "\n  name: thruput-smoke\n" in "\n" + d + "\n"))
 EOF
   wait_smoke
 }
@@ -259,7 +367,7 @@ cmd_status() {
   [[ -n "$statefulset" ]] || die "no validator is deployed"
   image=$(kubectl -n "$namespace" get statefulset "$statefulset" -o jsonpath='{.spec.template.spec.containers[0].image}')
   kubectl -n "$namespace" run "tip-$RANDOM" --rm -i --restart=Never --quiet --image="$image" \
-    --overrides='{"spec":{"imagePullSecrets":[{"name":"thruput-registry"}]}}' \
+    --override-type=json --overrides='[{"op":"add","path":"/spec/imagePullSecrets","value":[{"name":"thruput-registry"}]},{"op":"add","path":"/spec/securityContext","value":{"runAsNonRoot":true,"runAsUser":999,"runAsGroup":999,"seccompProfile":{"type":"RuntimeDefault"}}},{"op":"add","path":"/spec/containers/0/securityContext","value":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]' \
     --command -- python3 -c '
 import json, urllib.request
 request = urllib.request.Request("http://hog-gateway:18545", method="POST",
@@ -287,10 +395,16 @@ cmd_down() {
   need kubectl
   if ((purge)); then
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true
-    echo "deleted namespace $namespace and its chain data"
+    echo "deleted namespace $namespace, its chain data, and its keys"
   else
-    kubectl -n "$namespace" delete statefulset,job,service,configmap,secret -l "$part_of" --ignore-not-found
-    echo "kept the chain volumes: 'up' with the same overlay resumes that chain;"
+    local kinds=statefulset,job,service,configmap,secret,poddisruptionbudget,ingress,networkpolicy,serviceaccount,role,rolebinding
+    # Optional: present only where the Prometheus Operator CRDs are installed.
+    if kubectl api-resources --api-group=monitoring.coreos.com -o name 2>/dev/null | grep -q '^servicemonitors\.'; then
+      kinds+=,servicemonitors.monitoring.coreos.com
+    fi
+    # Never the key Secrets, even if an overlay gives them the part-of label.
+    kubectl -n "$namespace" delete "$kinds" -l "$part_of,thruput.network/keys!=true" --ignore-not-found
+    echo "kept the chain volumes and keys: 'up' with the same overlay resumes that chain;"
     echo "'down --purge' deletes it, which a different overlay requires"
   fi
 }

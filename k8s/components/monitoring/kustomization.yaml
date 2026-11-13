@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# 'down' removes resources by this label.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: thruput
+
+resources:
+  - service-monitors.yaml
+
+patches:
+  - target:
+      kind: Service
+      name: hog-mempool
+    patch: |-
+      - op: add
+        path: /metadata/labels/thruput.network~1metrics-service
+        value: hog-mempool
+  - target:
+      kind: Service
+      name: hog-exec
+    patch: |-
+      - op: add
+        path: /metadata/labels/thruput.network~1metrics-service
+        value: hog-exec
+  - target:
+      kind: Service
+      name: hog-indexer
+    patch: |-
+      - op: add
+        path: /metadata/labels/thruput.network~1metrics-service
+        value: hog-indexer
+  - target:
+      kind: Service
+      name: hog-coordinator
+    patch: |-
+      - op: add
+        path: /metadata/labels/thruput.network~1metrics-service
+        value: hog-coordinator
+  - target:
+      kind: Service
+      name: hog-gateway
+    patch: |-
+      - op: add
+        path: /metadata/labels/thruput.network~1metrics-service
+        value: hog-gateway

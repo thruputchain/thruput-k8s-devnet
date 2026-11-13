@@ -1,5 +1,5 @@
-# Shared objects for every Thruput k8s topology: namespace, settings, local
-# development secrets, one Service per daemon, and the post-deploy smoke Job.
+# Shared objects for every Thruput k8s topology: namespace, settings,
+# scripts, one Service per daemon, and the post-deploy smoke Job.
 # Pods and containers come from ../pod and ../components through an overlay.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -24,13 +24,5 @@ configMapGenerator:
       - scripts/gateway.sh
       - scripts/faucet.py
       - scripts/smoke.sh
-
-secretGenerator:
-  # Deterministic local-only keys. Replace both in an overlay for anything
-  # reachable by people you do not trust.
-  - name: thruput-faucet-key
-    envs:
-      - faucet-key.env
-  - name: thruput-coordinator-config
-    files:
-      - chuckd.json
+      - scripts/keygen.py
+      - chuckd.template.json
