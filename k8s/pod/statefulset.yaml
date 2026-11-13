@@ -53,10 +53,6 @@ spec:
         - name: scripts
           configMap:
             name: thruput-scripts
-        - name: coordinator-config
-          secret:
-            secretName: thruput-coordinator-config
-            defaultMode: 0444
   volumeClaimTemplates:
     - metadata:
         name: data
