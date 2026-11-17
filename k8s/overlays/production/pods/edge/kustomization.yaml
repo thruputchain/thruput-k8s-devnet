@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../../../pod
+
+nameSuffix: -edge
+
+labels:
+  - pairs:
+      thruput.network/pod: edge
+    includeSelectors: true
+    includeTemplates: true
+  - pairs:
+      thruput.network/hosts-hog-gateway: "true"
+      thruput.network/hosts-hog-faucet: "true"
+
+patches:
+  - target:
+      kind: StatefulSet
+    patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchExpressions:
+                      - key: thruput.network/pod
+                        operator: In
+                        values: [core, indexer]

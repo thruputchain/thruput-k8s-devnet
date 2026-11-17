@@ -10,6 +10,10 @@ spec:
     spec:
       containers:
         - name: hog-indexer
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           image: thruput-validator
           command: ["/bin/bash", "/opt/groundhog/with-container-ip.sh", "/usr/bin/hog-indexer"]
           args:

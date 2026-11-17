@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: hog-mempool.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-mempool=true
+  - path: hog-db.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-db=true
+  - path: hog-event.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-event=true
+  - path: hog-exec.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-exec=true
+  - path: hog-auth.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-auth=true
+  - path: hog-indexer.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-indexer=true
+  - path: hog-coordinator.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-coordinator=true
+  - path: hog-gateway.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-gateway=true
+  - path: hog-faucet.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-faucet=true
+  - path: hog-bootstrap.yaml
+    target:
+      kind: StatefulSet
+      labelSelector: app.kubernetes.io/part-of=thruput,thruput.network/hosts-hog-coordinator=true

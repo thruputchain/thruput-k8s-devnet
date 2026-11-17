@@ -6,4 +6,4 @@ kind: Component
 images:
   - name: thruput-validator
     newName: ghcr.io/thruputchain/thruput-validator
-    newTag: 0.1.32
+    newTag: 0.1.34

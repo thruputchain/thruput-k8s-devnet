@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: thruput
+
+resources:
+  - ../../base
+  - pods/core
+  - pods/indexer
+  - pods/edge
+
+components:
+  - ../../components/hog-mempool
+  - ../../components/hog-db
+  - ../../components/hog-event
+  - ../../components/hog-exec
+  - ../../components/hog-auth
+  - ../../components/hog-indexer
+  - ../../components/hog-coordinator
+  - ../../components/hog-gateway
+  - ../../components/hog-faucet
+  - ../../components/network-policy
+  - ../../components/resources
+  # Last: sets the image on every added container.
+  - ../../components/release
+
+configMapGenerator:
+  - name: thruput-settings
+    behavior: merge
+    literals:
+      # A public seed must not fund accounts on a real deployment.
+      - DEV_ACCOUNTS=0

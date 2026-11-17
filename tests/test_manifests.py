@@ -38,9 +38,62 @@ def hosted_daemons(pod_kustomization: Path) -> list[str]:
 
 
 class ManifestContractTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("kubectl"), "kubectl not installed")
+    def test_rendered_pods_use_restricted_security_contexts(self) -> None:
+        try:
+            import yaml
+        except ImportError:
+            self.skipTest("PyYAML not installed; needed to parse rendered manifests")
+        for overlay in sorted((K8S / "overlays").iterdir()):
+            if not overlay.is_dir():
+                continue
+            rendered = subprocess.run(
+                ["kubectl", "kustomize", str(overlay)], check=True, capture_output=True, text=True
+            ).stdout
+            pods = []
+            budgets = []
+            for resource in yaml.safe_load_all(rendered):
+                if not resource:
+                    continue
+                kind = resource["kind"]
+                if kind == "PodDisruptionBudget":
+                    budgets.append(resource)
+                if kind == "Pod":
+                    pod = resource
+                elif kind in {"StatefulSet", "Deployment", "DaemonSet", "ReplicaSet", "Job"}:
+                    pod = resource["spec"]["template"]
+                elif kind == "CronJob":
+                    pod = resource["spec"]["jobTemplate"]["spec"]["template"]
+                else:
+                    continue
+                pods.append(pod)
+                with self.subTest(overlay=overlay.name, resource=resource["metadata"]["name"]):
+                    spec = pod["spec"]
+                    security = spec.get("securityContext", {})
+                    self.assertIs(security.get("runAsNonRoot"), True)
+                    self.assertEqual(security.get("seccompProfile"), {"type": "RuntimeDefault"})
+                    self.assertNotEqual(security.get("runAsUser"), 0)
+                    for container in spec.get("containers", []) + spec.get("initContainers", []):
+                        context = container.get("securityContext", {})
+                        self.assertIs(context.get("allowPrivilegeEscalation"), False, container["name"])
+                        self.assertEqual(context.get("capabilities", {}).get("drop"), ["ALL"], container["name"])
+                        self.assertNotEqual(context.get("runAsUser"), 0, container["name"])
+            self.assertTrue(pods, overlay.name)
+            for budget in budgets:
+                selector = budget["spec"]["selector"]["matchLabels"]
+                self.assertIn("thruput.network/pod", selector)
+                self.assertEqual(budget["spec"]["maxUnavailable"], 0)
+                matches = [pod for pod in pods if all(
+                    pod["metadata"].get("labels", {}).get(key) == value
+                    for key, value in selector.items()
+                )]
+                self.assertEqual(len(matches), 1, budget["metadata"]["name"])
+
     def overlays(self) -> list[Path]:
-        overlays = sorted(path for path in (K8S / "overlays").iterdir() if path.is_dir())
-        self.assertEqual([path.name for path in overlays], ["multi-node", "single-pod", "split"])
+        # These topologies own pod placements; production composes an existing topology.
+        overlays = [K8S / "overlays" / name for name in ("multi-node", "single-pod", "split")]
+        for overlay in overlays:
+            self.assertTrue(overlay.is_dir(), str(overlay))
         return overlays
 
     def test_release_pins_one_published_tag(self) -> None:
@@ -106,6 +159,39 @@ class ManifestContractTests(unittest.TestCase):
                 position = init.index("genesis")
                 self.assertGreater(position, 0, f"{overlay.name}: genesis must follow prepare-data")
                 self.assertEqual(init[position - 1], "prepare-data", overlay.name)
+
+
+class PrepareDataTests(unittest.TestCase):
+    def prepare_data_script(self) -> str:
+        text = (K8S / "pod/statefulset.yaml").read_text(encoding="utf-8")
+        block = text.split("- name: prepare-data", 1)[1].split("            - |\n", 1)[1]
+        body = block.split("          volumeMounts:", 1)[0]
+        return "".join(line[14:] + "\n" for line in body.splitlines())
+
+    def run_on(self, data: Path) -> None:
+        script = self.prepare_data_script().replace("/data", str(data))
+        subprocess.run(["bash", "-c", script], check=True)
+
+    def test_resets_event_and_outbox_after_recursive_fsgroup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            outbox = data / "event/indexer-outbox"
+            outbox.mkdir(parents=True)
+            # Kubelet's recursive fsGroup pass adds group rwx and setgid to directories.
+            for path in (data / "event", outbox):
+                path.chmod(0o2770)
+            self.run_on(data)
+            for path in (data / "event", outbox):
+                self.assertEqual(path.stat().st_mode & 0o7777, 0o700, path)
+
+    def test_first_start_creates_daemon_directories_without_outbox(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            self.run_on(data)
+            self.assertEqual((data / "event").stat().st_mode & 0o7777, 0o700)
+            self.assertFalse((data / "event/indexer-outbox").exists())
+            for name in ("hogdb", "indexer", "coordinator/bootstrap", "coordinator/chuckd"):
+                self.assertTrue((data / name).is_dir(), name)
 
 
 class FaucetRenderTests(unittest.TestCase):

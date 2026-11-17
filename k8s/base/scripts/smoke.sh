@@ -62,9 +62,10 @@ cli() { thruput --non-interactive --json "$@"; }
 accounts=$(fetch "$BOOTSTRAP_URL/metadata.json" | python3 -c '
 import json, sys
 metadata = json.load(sys.stdin)
-for account in metadata["bootstrapAccounts"] + [metadata["faucet"]]:
+accounts = metadata.get("bootstrapAccounts", []) if sys.argv[1] != "0" else []
+for account in accounts + [metadata["faucet"]]:
     print(account["role"], account["walletAddress"])
-')
+' "${DEV_ACCOUNTS:?}")
 while read -r role address; do
   balance=$(cli balance --profile k8s "$address" | json_field data.rawBalance)
   if [[ ! "$balance" =~ ^[1-9][0-9]*$ ]]; then

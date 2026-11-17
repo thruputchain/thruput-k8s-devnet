@@ -21,25 +21,39 @@ spec:
       imagePullSecrets:
         - name: thruput-registry
       securityContext:
+        runAsNonRoot: true
         runAsUser: 999
         runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # Every daemon keeps its state under /data/<daemon> on the pod's volume.
-        # Runs as root so any storage class works, and never uses fsGroup:
-        # hog-event refuses an outbox directory with group permissions.
+        # fsGroup grants volume access to UID 999; reset event permissions on every start
+        # because fsGroup may add group bits that hog-event refuses. A recursive
+        # fsGroup pass also marks the existing indexer-outbox 2770, which hog-event
+        # rejects as not 0700, so reset it too.
         - name: prepare-data
           image: thruput-validator
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           command:
             - /bin/bash
             - -c
             - |
               set -euo pipefail
               mkdir -p /data/hogdb /data/indexer /data/event /data/coordinator/bootstrap /data/coordinator/chuckd
-              chown 999:999 /data /data/hogdb /data/indexer /data/event /data/coordinator /data/coordinator/bootstrap /data/coordinator/chuckd
+              # GNU chmod keeps a directory's setgid bit under an octal mode;
+              # clear it explicitly so both directories end up exactly 0700.
               chmod 0700 /data/event
+              chmod g-s /data/event
+              if [ -d /data/event/indexer-outbox ]; then
+                chmod 0700 /data/event/indexer-outbox
+                chmod g-s /data/event/indexer-outbox
+              fi
           volumeMounts:
             - name: data
               mountPath: /data
@@ -48,10 +62,6 @@ spec:
         - name: scripts
           configMap:
             name: thruput-scripts
-        - name: coordinator-config
-          secret:
-            secretName: thruput-coordinator-config
-            defaultMode: 0444
   volumeClaimTemplates:
     - metadata:
         name: data
