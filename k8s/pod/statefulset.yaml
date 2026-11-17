@@ -46,9 +46,13 @@ spec:
             - |
               set -euo pipefail
               mkdir -p /data/hogdb /data/indexer /data/event /data/coordinator/bootstrap /data/coordinator/chuckd
+              # GNU chmod keeps a directory's setgid bit under an octal mode;
+              # clear it explicitly so both directories end up exactly 0700.
               chmod 0700 /data/event
+              chmod g-s /data/event
               if [ -d /data/event/indexer-outbox ]; then
                 chmod 0700 /data/event/indexer-outbox
+                chmod g-s /data/event/indexer-outbox
               fi
           volumeMounts:
             - name: data
