@@ -15,10 +15,6 @@ rules:
   - apiGroups: [""]
     resources: [secrets]
     verbs: [create]
-  - apiGroups: [""]
-    resources: [secrets]
-    resourceNames: [thruput-validator-key, thruput-faucet-key]
-    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

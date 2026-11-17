@@ -29,7 +29,9 @@ cluster, including when it already exists:
 
 `up` waits for the validator and the smoke Job, then prints the endpoints. k3s
 ServiceLB publishes the gateway (`18545` RPC, `19646` readiness) and the faucet
-(`18085`) on every node. The k3d cluster maps those ports to localhost.
+(`18085`) on every node. The k3d cluster maps those ports to localhost. The
+`production` overlay's NetworkPolicies admit only `18545` and `18085` from
+outside the namespace.
 
 The other commands are `smoke`, `status`, `restart`, `down`, and
 `down --purge`. Plain `down` keeps the chain volumes, so the next `up` with the
@@ -61,7 +63,10 @@ anti-affinity spreads them across nodes when capacity allows. It sets
   --cluster-issuer letsencrypt --monitoring
 ```
 
-Choose a storage class available on your cluster. Storage defaults to the
+`up` records the storage, ingress, and monitoring options. While the
+deployment runs, a later `up` (for example, to change the image) must repeat
+them; to change them, run `down` first. Choose a storage class available on
+your cluster. Storage defaults to the
 cluster's default class and `20Gi`. An existing StatefulSet cannot change its
 `volumeClaimTemplates`: run `down` first, then `up` with the new options.
 Existing volumes keep their old class and size. Provision or migrate volumes

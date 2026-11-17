@@ -239,7 +239,8 @@ Thruput devnet is up in namespace $namespace.
   Faucet:    kubectl -n $namespace port-forward svc/hog-faucet 18085
   Readiness: kubectl -n $namespace port-forward svc/hog-gateway 19646, then GET /readyz
 On k3s the gateway and faucet Services are also published on every node at
-ports 18545, 19646, and 18085 by the built-in ServiceLB.
+ports 18545, 19646, and 18085 by the built-in ServiceLB. The production
+NetworkPolicies admit only 18545 and 18085 from outside the namespace.
 EOF
 }
 
@@ -297,14 +298,28 @@ PY
   [[ -n "$placement" ]] || die "the overlay hosts no daemons"
   check_topology "$(statefulsets_in "$manifest")" "$placement"
 
+  # Options that shape running objects. Dropping one on a later 'up' would
+  # silently revert it (for example, Services back to public LoadBalancers).
+  local options recorded_options
+  options="storage-class=$storage_class volume-size=$volume_size ingress=$ingress_hosts"
+  options+=" ingress-class=${ingress_hosts:+$ingress_class} cluster-issuer=$cluster_issuer monitoring=$monitoring"
+  recorded_options=$(kubectl -n "$namespace" get configmap thruput-topology -o jsonpath='{.data.options}' 2>/dev/null || true)
+  if [[ -n "$recorded_options" && "$recorded_options" != "$options" && -n "$(deployed_statefulsets)" ]]; then
+    die "the running deployment used different options ($recorded_options); repeat them, or run 'down' first to change them"
+  fi
+
   manifest_documents "$manifest" namespace | kubectl apply -f -
-  if ! kubectl -n "$namespace" get secret thruput-validator-key thruput-faucet-key >/dev/null 2>&1; then
+  local key_secrets volumes
+  key_secrets=$(kubectl -n "$namespace" get secret thruput-validator-key thruput-faucet-key \
+    --ignore-not-found -o name) || die "could not read the key Secrets in $namespace"
+  if [[ $(grep -c . <<<"$key_secrets") -lt 2 ]]; then
     if [[ "$keys" == byo ]]; then
       die "required key Secrets are missing; create them: python3 k8s/base/scripts/keygen.py manifests | kubectl apply -f -"
     fi
     # Genesis is bound to the keys it was minted with: new keys cannot
     # resume an existing chain (including one from before per-deployment keys).
-    if kubectl -n "$namespace" get pvc -o name 2>/dev/null | grep -q '/data-'; then
+    volumes=$(kubectl -n "$namespace" get pvc -o name) || die "could not list volumes in $namespace"
+    if grep -q '/data-' <<<"$volumes"; then
       die "chain volumes exist but their keys do not; restore the key Secrets, or run 'down --purge' for a new chain"
     fi
   fi
@@ -322,7 +337,7 @@ PY
   manifest_documents "$manifest" rest | kubectl apply -f -
   # Not labelled part-of: a plain 'down' keeps it with the chain volumes.
   kubectl -n "$namespace" create configmap thruput-topology --from-literal=placement="$placement" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    --from-literal=options="$options" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   mv "$manifest" "$work_dir/rendered.yaml"
   wait_validator
   wait_smoke
@@ -397,13 +412,15 @@ cmd_down() {
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true
     echo "deleted namespace $namespace, its chain data, and its keys"
   else
-    local kinds=statefulset,job,service,configmap,secret,poddisruptionbudget,ingress,networkpolicy,serviceaccount,role,rolebinding
+    local kinds=statefulset,job,service,configmap,poddisruptionbudget,ingress,networkpolicy,serviceaccount,role,rolebinding
     # Optional: present only where the Prometheus Operator CRDs are installed.
-    if kubectl api-resources --api-group=monitoring.coreos.com -o name 2>/dev/null | grep -q '^servicemonitors\.'; then
+    if grep -q '^servicemonitors\.' <<<"$(kubectl api-resources --api-group=monitoring.coreos.com -o name 2>/dev/null || true)"; then
       kinds+=,servicemonitors.monitoring.coreos.com
     fi
-    # Never the key Secrets, even if an overlay gives them the part-of label.
-    kubectl -n "$namespace" delete "$kinds" -l "$part_of,thruput.network/keys!=true" --ignore-not-found
+    kubectl -n "$namespace" delete "$kinds" -l "$part_of" --ignore-not-found
+    # Never the key Secrets, whatever labels an overlay or operator gives them.
+    kubectl -n "$namespace" delete secret -l "$part_of,thruput.network/keys!=true" --ignore-not-found \
+      --field-selector metadata.name!=thruput-validator-key,metadata.name!=thruput-faucet-key
     echo "kept the chain volumes and keys: 'up' with the same overlay resumes that chain;"
     echo "'down --purge' deletes it, which a different overlay requires"
   fi
