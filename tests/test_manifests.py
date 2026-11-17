@@ -161,6 +161,39 @@ class ManifestContractTests(unittest.TestCase):
                 self.assertEqual(init[position - 1], "prepare-data", overlay.name)
 
 
+class PrepareDataTests(unittest.TestCase):
+    def prepare_data_script(self) -> str:
+        text = (K8S / "pod/statefulset.yaml").read_text(encoding="utf-8")
+        block = text.split("- name: prepare-data", 1)[1].split("            - |\n", 1)[1]
+        body = block.split("          volumeMounts:", 1)[0]
+        return "".join(line[14:] + "\n" for line in body.splitlines())
+
+    def run_on(self, data: Path) -> None:
+        script = self.prepare_data_script().replace("/data", str(data))
+        subprocess.run(["bash", "-c", script], check=True)
+
+    def test_resets_event_and_outbox_after_recursive_fsgroup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            outbox = data / "event/indexer-outbox"
+            outbox.mkdir(parents=True)
+            # Kubelet's recursive fsGroup pass adds group rwx and setgid to directories.
+            for path in (data / "event", outbox):
+                path.chmod(0o2770)
+            self.run_on(data)
+            for path in (data / "event", outbox):
+                self.assertEqual(path.stat().st_mode & 0o7777, 0o700, path)
+
+    def test_first_start_creates_daemon_directories_without_outbox(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            data = Path(directory)
+            self.run_on(data)
+            self.assertEqual((data / "event").stat().st_mode & 0o7777, 0o700)
+            self.assertFalse((data / "event/indexer-outbox").exists())
+            for name in ("hogdb", "indexer", "coordinator/bootstrap", "coordinator/chuckd"):
+                self.assertTrue((data / name).is_dir(), name)
+
+
 class FaucetRenderTests(unittest.TestCase):
     PUBLIC_KEY = "F25s3DdjXdCxYBhh2z8FBusVEMT4b9bGNFVKJi3wFoF4"
     GENESIS = "88TGrHLrssWVxLuQFBymZrtdhcBFSRkeoWoYny2p1x62"

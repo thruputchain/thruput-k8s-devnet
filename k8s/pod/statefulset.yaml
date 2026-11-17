@@ -31,7 +31,9 @@ spec:
       initContainers:
         # Every daemon keeps its state under /data/<daemon> on the pod's volume.
         # fsGroup grants volume access to UID 999; reset event permissions on every start
-        # because fsGroup may add group bits that hog-event refuses.
+        # because fsGroup may add group bits that hog-event refuses. A recursive
+        # fsGroup pass also marks the existing indexer-outbox 2770, which hog-event
+        # rejects as not 0700, so reset it too.
         - name: prepare-data
           image: thruput-validator
           securityContext:
@@ -45,6 +47,9 @@ spec:
               set -euo pipefail
               mkdir -p /data/hogdb /data/indexer /data/event /data/coordinator/bootstrap /data/coordinator/chuckd
               chmod 0700 /data/event
+              if [ -d /data/event/indexer-outbox ]; then
+                chmod 0700 /data/event/indexer-outbox
+              fi
           volumeMounts:
             - name: data
               mountPath: /data
